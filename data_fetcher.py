@@ -154,9 +154,9 @@ class DataFetcher:
         
         try:
             # 여러 종목을 한 번에 다운로드
-            # tickers는 공백으로 구분된 문자열 또는 리스트로 전달 가능
+            # tickers는 공백으로 구분된 문자열로 전달
             data = yf.download(
-                tickers=' '.join(symbols) if len(symbols) > 1 else symbols[0],
+                tickers=' '.join(symbols),
                 period=period,
                 group_by='ticker',
                 auto_adjust=False,
@@ -191,6 +191,11 @@ class DataFetcher:
                     self._try_individual_download(symbol, period, all_data)
             else:
                 # 여러 종목인 경우 - MultiIndex 처리
+                # columns 속성이 유효한지 먼저 확인
+                if not hasattr(data, 'columns') or data.columns is None:
+                    print("Invalid data structure, falling back to individual download")
+                    return self._fallback_individual_download(symbols, period)
+                
                 for symbol in symbols:
                     try:
                         # MultiIndex DataFrame 체크
@@ -204,27 +209,25 @@ class DataFetcher:
                                 # 필수 컬럼이 모두 있는지 확인
                                 if all(col in symbol_data.columns for col in required_cols):
                                     df = symbol_data[required_cols].copy()
+                                    
+                                    # 데이터 정제
+                                    df.index = pd.to_datetime(df.index)
+                                    df = df.dropna(subset=['Close'])
+                                    
+                                    # 유효한 데이터가 있는 경우에만 추가
+                                    if not df.empty:
+                                        all_data[symbol] = df
+                                    else:
+                                        print(f"No valid data for {symbol} after cleaning")
                                 else:
                                     print(f"Missing required columns for {symbol}, skipping")
-                                    continue
                             else:
                                 print(f"Symbol {symbol} not found in MultiIndex, trying individual download")
                                 self._try_individual_download(symbol, period, all_data)
-                                continue
                         else:
                             # MultiIndex가 아닌 경우 - 예상치 못한 상황이므로 개별 다운로드로 전환
                             print(f"Expected MultiIndex for multiple symbols but got regular columns, falling back to individual download")
                             return self._fallback_individual_download(symbols, period)
-                        
-                        # 데이터 정제
-                        df.index = pd.to_datetime(df.index)
-                        df = df.dropna(subset=['Close'])
-                        
-                        # 유효한 데이터가 있는 경우에만 추가
-                        if not df.empty:
-                            all_data[symbol] = df
-                        else:
-                            print(f"No valid data for {symbol} after cleaning")
                             
                     except Exception as e:
                         print(f"Error processing {symbol}: {e}")
