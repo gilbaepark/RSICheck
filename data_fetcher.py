@@ -160,8 +160,7 @@ class DataFetcher:
                 period=period,
                 group_by='ticker',
                 auto_adjust=False,
-                progress=False,
-                threads=True
+                progress=False
             )
             
             # 데이터가 비어있거나 None인 경우 fallback
@@ -196,12 +195,15 @@ class DataFetcher:
                     print("Invalid data structure, falling back to individual download")
                     return self._fallback_individual_download(symbols, period)
                 
-                for symbol in symbols:
-                    try:
-                        # MultiIndex DataFrame 체크
-                        if isinstance(data.columns, pd.MultiIndex):
+                # MultiIndex DataFrame 체크
+                if isinstance(data.columns, pd.MultiIndex):
+                    # 성능 최적화: level 0 값을 미리 추출
+                    level_0_values = data.columns.get_level_values(0)
+                    
+                    for symbol in symbols:
+                        try:
                             # MultiIndex에서 해당 종목이 존재하는지 확인
-                            if symbol in data.columns.get_level_values(0):
+                            if symbol in level_0_values:
                                 # 종목별 데이터 추출
                                 symbol_data = data[symbol]
                                 required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
@@ -224,15 +226,15 @@ class DataFetcher:
                             else:
                                 print(f"Symbol {symbol} not found in MultiIndex, trying individual download")
                                 self._try_individual_download(symbol, period, all_data)
-                        else:
-                            # MultiIndex가 아닌 경우 - 예상치 못한 상황이므로 개별 다운로드로 전환
-                            print(f"Expected MultiIndex for multiple symbols but got regular columns, falling back to individual download")
-                            return self._fallback_individual_download(symbols, period)
-                            
-                    except Exception as e:
-                        print(f"Error processing {symbol}: {e}")
-                        # 개별 종목 실패 시 개별 다운로드 시도
-                        self._try_individual_download(symbol, period, all_data)
+                                
+                        except Exception as e:
+                            print(f"Error processing {symbol}: {e}")
+                            # 개별 종목 실패 시 개별 다운로드 시도
+                            self._try_individual_download(symbol, period, all_data)
+                else:
+                    # MultiIndex가 아닌 경우 - 예상치 못한 상황이므로 개별 다운로드로 전환
+                    print(f"Expected MultiIndex for multiple symbols but got regular columns, falling back to individual download")
+                    return self._fallback_individual_download(symbols, period)
             
             # 아무 데이터도 없으면 fallback
             if not all_data:
