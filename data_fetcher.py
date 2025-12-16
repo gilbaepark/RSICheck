@@ -184,18 +184,11 @@ class DataFetcher:
                             all_data[symbol] = df
                     else:
                         print(f"Missing required columns for {symbol}, trying individual download")
-                        individual_df = self.get_stock_data(symbol, period)
-                        if individual_df is not None:
-                            all_data[symbol] = individual_df
+                        self._try_individual_download(symbol, period, all_data)
                 except Exception as e:
                     print(f"Error processing single symbol {symbol}: {e}")
                     # 개별 다운로드로 재시도
-                    try:
-                        individual_df = self.get_stock_data(symbol, period)
-                        if individual_df is not None:
-                            all_data[symbol] = individual_df
-                    except Exception:
-                        pass
+                    self._try_individual_download(symbol, period, all_data)
             else:
                 # 여러 종목인 경우 - MultiIndex 처리
                 for symbol in symbols:
@@ -216,9 +209,7 @@ class DataFetcher:
                                     continue
                             else:
                                 print(f"Symbol {symbol} not found in MultiIndex, trying individual download")
-                                individual_df = self.get_stock_data(symbol, period)
-                                if individual_df is not None:
-                                    all_data[symbol] = individual_df
+                                self._try_individual_download(symbol, period, all_data)
                                 continue
                         else:
                             # MultiIndex가 아닌 경우 - 예상치 못한 상황이므로 개별 다운로드로 전환
@@ -238,12 +229,7 @@ class DataFetcher:
                     except Exception as e:
                         print(f"Error processing {symbol}: {e}")
                         # 개별 종목 실패 시 개별 다운로드 시도
-                        try:
-                            individual_df = self.get_stock_data(symbol, period)
-                            if individual_df is not None:
-                                all_data[symbol] = individual_df
-                        except Exception as e2:
-                            print(f"Fallback download also failed for {symbol}: {e2}")
+                        self._try_individual_download(symbol, period, all_data)
             
             # 아무 데이터도 없으면 fallback
             if not all_data:
@@ -256,6 +242,22 @@ class DataFetcher:
             print(f"Error in batch download: {e}")
             # 전체 실패 시 개별 다운로드로 대체
             return self._fallback_individual_download(symbols, period)
+    
+    def _try_individual_download(self, symbol: str, period: str, all_data: dict) -> None:
+        """
+        단일 종목에 대해 개별 다운로드를 시도하고 결과를 all_data에 추가합니다.
+        
+        Args:
+            symbol: 주식 티커 심볼
+            period: 조회 기간
+            all_data: 결과를 저장할 딕셔너리
+        """
+        try:
+            df = self.get_stock_data(symbol, period)
+            if df is not None and not df.empty:
+                all_data[symbol] = df
+        except Exception as e:
+            print(f"Individual download failed for {symbol}: {e}")
     
     def _fallback_individual_download(self, symbols: list, period: str) -> dict:
         """
@@ -270,12 +272,7 @@ class DataFetcher:
         """
         all_data = {}
         for symbol in symbols:
-            try:
-                df = self.get_stock_data(symbol, period)
-                if df is not None and not df.empty:
-                    all_data[symbol] = df
-            except Exception as e:
-                print(f"Fallback download failed for {symbol}: {e}")
+            self._try_individual_download(symbol, period, all_data)
         return all_data
     
     def get_all_current_prices(self) -> dict:
