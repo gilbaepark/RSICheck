@@ -19,6 +19,7 @@ class SignalGenerator:
     # RSI 임계값 설정
     DEFAULT_BUY_THRESHOLD = 30
     DEFAULT_SELL_THRESHOLD = 70
+    DEFAULT_STRONG_SELL_THRESHOLD = 75  # 기본 강력 매도 임계값
     UPTREND_SELL_THRESHOLD = 75
     STRONG_UPTREND_SELL_THRESHOLD = 80
     STRONG_UPTREND_SELL_OFFSET = 5  # 강한 상승 추세에서 strong_sell_threshold 추가 오프셋
@@ -91,7 +92,7 @@ class SignalGenerator:
         else:
             # 기본 임계값
             sell_threshold = self.DEFAULT_SELL_THRESHOLD
-            strong_sell_threshold = self.DEFAULT_SELL_THRESHOLD
+            strong_sell_threshold = self.DEFAULT_STRONG_SELL_THRESHOLD
         
         if trend == 'downtrend' and trend_strong:
             # 강한 하락 추세: 매수 임계값 하향 조정
@@ -113,7 +114,7 @@ class SignalGenerator:
         # 2. 강세 다이버전스 추가 보너스
         # 3. 하락 추세에서는 더 낮은 임계값 적용
         if (short_rsi <= strong_buy_threshold and short_reversal == 'up' and 
-            strong_buy_threshold <= medium_rsi <= 50 and medium_rising and 
+            buy_threshold <= medium_rsi <= 50 and medium_rising and 
             long_rsi >= 50):
             strength = self._calculate_buy_strength(short_rsi, medium_rsi, long_rsi)
             

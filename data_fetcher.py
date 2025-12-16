@@ -173,12 +173,22 @@ class DataFetcher:
                 # 여러 종목인 경우
                 for symbol in symbols:
                     try:
-                        if symbol in data.columns.levels[0]:
-                            df = data[symbol][['Open', 'High', 'Low', 'Close', 'Volume']].copy()
-                            df.index = pd.to_datetime(df.index)
-                            # NaN이 너무 많으면 제외
-                            if not df.empty and df['Close'].notna().sum() > 0:
-                                all_data[symbol] = df
+                        # MultiIndex 확인
+                        if hasattr(data.columns, 'levels'):
+                            # MultiIndex인 경우
+                            if symbol in data.columns.levels[0]:
+                                df = data[symbol][['Open', 'High', 'Low', 'Close', 'Volume']].copy()
+                                df.index = pd.to_datetime(df.index)
+                                # NaN이 너무 많으면 제외
+                                if not df.empty and df['Close'].notna().sum() > 0:
+                                    all_data[symbol] = df
+                        else:
+                            # MultiIndex가 아닌 경우 (단일 종목이지만 복수로 요청된 경우)
+                            if not data.empty:
+                                df = data[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
+                                df.index = pd.to_datetime(df.index)
+                                if df['Close'].notna().sum() > 0:
+                                    all_data[symbol] = df
                     except Exception as e:
                         print(f"Error processing {symbol}: {e}")
             
