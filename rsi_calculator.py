@@ -9,6 +9,10 @@ from typing import Tuple
 class RSICalculator:
     """RSI(Relative Strength Index) 계산 클래스"""
     
+    # 추세 강도 판단 기준 (%)
+    STRONG_TREND_PRICE_THRESHOLD = 5.0  # 가격이 MA20보다 5% 이상 위/아래
+    STRONG_TREND_MA_THRESHOLD = 3.0     # MA20이 MA50보다 3% 이상 위/아래
+    
     def __init__(self, short_period: int = 9, medium_period: int = 14, long_period: int = 26):
         """
         RSICalculator 초기화
@@ -261,16 +265,18 @@ class RSICalculator:
         if pd.isna(ma_20) or pd.isna(ma_50):
             return False
         
-        # 강한 상승 추세: 가격이 MA20보다 5% 이상 위에 있고, MA20이 MA50보다 3% 이상 위
+        # 강한 상승 추세: 가격이 MA20보다 STRONG_TREND_PRICE_THRESHOLD% 이상 위에 있고, 
+        # MA20이 MA50보다 STRONG_TREND_MA_THRESHOLD% 이상 위
         if trend == 'uptrend':
-            price_above_ma20 = (current_price - ma_20) / ma_20 * 100 > 5
-            ma20_above_ma50 = (ma_20 - ma_50) / ma_50 * 100 > 3
+            price_above_ma20 = (current_price - ma_20) / ma_20 * 100 > self.STRONG_TREND_PRICE_THRESHOLD
+            ma20_above_ma50 = (ma_20 - ma_50) / ma_50 * 100 > self.STRONG_TREND_MA_THRESHOLD
             return price_above_ma20 and ma20_above_ma50
         
-        # 강한 하락 추세: 가격이 MA20보다 5% 이상 아래에 있고, MA20이 MA50보다 3% 이상 아래
+        # 강한 하락 추세: 가격이 MA20보다 STRONG_TREND_PRICE_THRESHOLD% 이상 아래에 있고, 
+        # MA20이 MA50보다 STRONG_TREND_MA_THRESHOLD% 이상 아래
         if trend == 'downtrend':
-            price_below_ma20 = (ma_20 - current_price) / ma_20 * 100 > 5
-            ma20_below_ma50 = (ma_50 - ma_20) / ma_50 * 100 > 3
+            price_below_ma20 = (ma_20 - current_price) / ma_20 * 100 > self.STRONG_TREND_PRICE_THRESHOLD
+            ma20_below_ma50 = (ma_50 - ma_20) / ma_50 * 100 > self.STRONG_TREND_MA_THRESHOLD
             return price_below_ma20 and ma20_below_ma50
         
         return False

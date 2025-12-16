@@ -16,6 +16,18 @@ class SignalGenerator:
     SELL = "매도"
     STRONG_SELL = "강력 매도"
     
+    # RSI 임계값 설정
+    DEFAULT_BUY_THRESHOLD = 30
+    DEFAULT_SELL_THRESHOLD = 70
+    UPTREND_SELL_THRESHOLD = 75
+    STRONG_UPTREND_SELL_THRESHOLD = 80
+    DOWNTREND_BUY_THRESHOLD = 27
+    STRONG_DOWNTREND_BUY_THRESHOLD = 25
+    
+    # 다이버전스 신호 강도 배율
+    DIVERGENCE_STRENGTH_MULTIPLIER = 1.2
+    DIVERGENCE_BUY_MULTIPLIER = 1.3
+    
     def __init__(self, rsi_calculator: RSICalculator = None):
         """
         SignalGenerator 초기화
@@ -67,30 +79,30 @@ class SignalGenerator:
         
         # 동적 RSI 임계값 설정
         if trend == 'uptrend' and trend_strong:
-            # 강한 상승 추세: 매도 임계값 상향 조정 (70 → 80)
-            sell_threshold = 80
-            strong_sell_threshold = 85
+            # 강한 상승 추세: 매도 임계값 상향 조정
+            sell_threshold = self.STRONG_UPTREND_SELL_THRESHOLD
+            strong_sell_threshold = self.STRONG_UPTREND_SELL_THRESHOLD + 5
         elif trend == 'uptrend':
-            # 상승 추세: 매도 임계값 약간 상향 (70 → 75)
-            sell_threshold = 75
-            strong_sell_threshold = 80
+            # 상승 추세: 매도 임계값 약간 상향
+            sell_threshold = self.UPTREND_SELL_THRESHOLD
+            strong_sell_threshold = self.STRONG_UPTREND_SELL_THRESHOLD
         else:
             # 기본 임계값
-            sell_threshold = 70
-            strong_sell_threshold = 70
+            sell_threshold = self.DEFAULT_SELL_THRESHOLD
+            strong_sell_threshold = self.DEFAULT_SELL_THRESHOLD
         
         if trend == 'downtrend' and trend_strong:
-            # 강한 하락 추세: 매수 임계값 하향 조정 (30 → 25)
-            buy_threshold = 25
-            strong_buy_threshold = 25
+            # 강한 하락 추세: 매수 임계값 하향 조정
+            buy_threshold = self.STRONG_DOWNTREND_BUY_THRESHOLD
+            strong_buy_threshold = self.STRONG_DOWNTREND_BUY_THRESHOLD
         elif trend == 'downtrend':
-            # 하락 추세: 매수 임계값 약간 하향 (30 → 27)
-            buy_threshold = 27
-            strong_buy_threshold = 27
+            # 하락 추세: 매수 임계값 약간 하향
+            buy_threshold = self.DOWNTREND_BUY_THRESHOLD
+            strong_buy_threshold = self.DOWNTREND_BUY_THRESHOLD
         else:
             # 기본 임계값
-            buy_threshold = 30
-            strong_buy_threshold = 30
+            buy_threshold = self.DEFAULT_BUY_THRESHOLD
+            strong_buy_threshold = self.DEFAULT_BUY_THRESHOLD
         
         # === 매수 신호 로직 ===
         
@@ -105,7 +117,7 @@ class SignalGenerator:
             
             # 강세 다이버전스가 있으면 신호 강도 증가
             if divergence == 'bullish':
-                strength = min(100, strength * 1.2)
+                strength = min(100, strength * self.DIVERGENCE_STRENGTH_MULTIPLIER)
                 description = f"강세 다이버전스 감지! 단기 RSI 상승 반전({short_rsi:.1f}), 중기 RSI 상승 중({medium_rsi:.1f}), 장기 RSI 안정({long_rsi:.1f})"
             else:
                 description = f"단기 RSI 상승 반전({short_rsi:.1f}), 중기 RSI 상승 중({medium_rsi:.1f}), 장기 RSI 안정({long_rsi:.1f})"
@@ -119,7 +131,7 @@ class SignalGenerator:
             
             # 강세 다이버전스가 있으면 신호 강도 증가
             if divergence == 'bullish':
-                strength = min(100, strength * 1.3)
+                strength = min(100, strength * self.DIVERGENCE_BUY_MULTIPLIER)
                 description = f"강세 다이버전스 + 단기 RSI 과매도({short_rsi:.1f}), 중기 RSI 낮음({medium_rsi:.1f})"
             else:
                 description = f"단기 RSI 과매도({short_rsi:.1f}), 중기 RSI 낮음({medium_rsi:.1f})"
@@ -153,7 +165,7 @@ class SignalGenerator:
             
             # 약세 다이버전스가 있으면 신호 강도 증가
             if divergence == 'bearish':
-                strength = min(100, strength * 1.2)
+                strength = min(100, strength * self.DIVERGENCE_STRENGTH_MULTIPLIER)
                 description = f"약세 다이버전스 감지! 단기 RSI 하락 반전({short_rsi:.1f}), 중기 RSI 하락 중({medium_rsi:.1f}), 장기 RSI 과열({long_rsi:.1f})"
             else:
                 description = f"단기 RSI 하락 반전({short_rsi:.1f}), 중기 RSI 하락 중({medium_rsi:.1f}), 장기 RSI 과열({long_rsi:.1f})"
@@ -167,7 +179,7 @@ class SignalGenerator:
             
             # 약세 다이버전스가 있으면 신호 강도 증가
             if divergence == 'bearish':
-                strength = min(100, strength * 1.3)
+                strength = min(100, strength * self.DIVERGENCE_BUY_MULTIPLIER)
                 description = f"약세 다이버전스 + 단기 RSI 과매수({short_rsi:.1f}), 중기 RSI 높음({medium_rsi:.1f})"
             else:
                 description = f"단기 RSI 과매수({short_rsi:.1f}), 중기 RSI 높음({medium_rsi:.1f})"

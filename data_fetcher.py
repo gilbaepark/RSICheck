@@ -11,6 +11,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 class DataFetcher:
     """Yahoo Finance에서 주식 데이터를 가져오는 클래스"""
     
+    # 병렬 처리 설정
+    MAX_WORKERS = 5  # ThreadPoolExecutor 최대 워커 수
+    
     # 모니터링 종목 정의
     STOCKS = {
         'Tesla': 'TSLA',
@@ -118,7 +121,7 @@ class DataFetcher:
         all_data = {}
         
         # ThreadPoolExecutor를 사용한 병렬 처리
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
             future_to_symbol = {
                 executor.submit(self.get_stock_data, symbol, period): symbol 
                 for symbol in self.STOCKS.values()
@@ -195,7 +198,7 @@ class DataFetcher:
         all_prices = {}
         
         # ThreadPoolExecutor를 사용한 병렬 처리
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
             future_to_symbol = {
                 executor.submit(self.get_current_price, symbol): symbol
                 for symbol in self.STOCKS.values()
