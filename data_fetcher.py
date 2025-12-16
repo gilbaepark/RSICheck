@@ -154,8 +154,9 @@ class DataFetcher:
         
         try:
             # 여러 종목을 한 번에 다운로드
+            # tickers는 공백으로 구분된 문자열 또는 리스트로 전달 가능
             data = yf.download(
-                tickers=symbols,
+                tickers=' '.join(symbols) if len(symbols) > 1 else symbols[0],
                 period=period,
                 group_by='ticker',
                 auto_adjust=False,
@@ -220,13 +221,9 @@ class DataFetcher:
                                     all_data[symbol] = individual_df
                                 continue
                         else:
-                            # MultiIndex가 아닌 경우 - 단일 종목으로 처리
-                            required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
-                            if all(col in data.columns for col in required_cols):
-                                df = data[required_cols].copy()
-                            else:
-                                print(f"Missing required columns, skipping {symbol}")
-                                continue
+                            # MultiIndex가 아닌 경우 - 예상치 못한 상황이므로 개별 다운로드로 전환
+                            print(f"Expected MultiIndex for multiple symbols but got regular columns, falling back to individual download")
+                            return self._fallback_individual_download(symbols, period)
                         
                         # 데이터 정제
                         df.index = pd.to_datetime(df.index)
