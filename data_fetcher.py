@@ -14,6 +14,9 @@ class DataFetcher:
     # 병렬 처리 설정
     MAX_WORKERS = 5  # ThreadPoolExecutor 최대 워커 수
     
+    # 필수 데이터 컬럼
+    REQUIRED_COLUMNS = ['Open', 'High', 'Low', 'Close', 'Volume']
+    
     # 모니터링 종목 정의
     STOCKS = {
         'Tesla': 'TSLA',
@@ -46,7 +49,7 @@ class DataFetcher:
                 return None
             
             # 필요한 컬럼만 선택
-            df = df[['Open', 'High', 'Low', 'Close', 'Volume']]
+            df = df[self.REQUIRED_COLUMNS]
             df.index = pd.to_datetime(df.index)
             
             return df
@@ -172,10 +175,9 @@ class DataFetcher:
             if len(symbols) == 1:
                 symbol = symbols[0]
                 try:
-                    required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
                     # 모든 필수 컬럼이 존재하는지 확인
-                    if all(col in data.columns for col in required_cols):
-                        df = data[required_cols].copy()
+                    if all(col in data.columns for col in self.REQUIRED_COLUMNS):
+                        df = data[self.REQUIRED_COLUMNS].copy()
                         df.index = pd.to_datetime(df.index)
                         # Close 컬럼의 NaN을 제거
                         df = df.dropna(subset=['Close'])
@@ -191,7 +193,7 @@ class DataFetcher:
             else:
                 # 여러 종목인 경우 - MultiIndex 처리
                 # columns 속성이 유효한지 먼저 확인
-                if not hasattr(data, 'columns') or data.columns is None:
+                if not hasattr(data, 'columns'):
                     print("Invalid data structure, falling back to individual download")
                     return self._fallback_individual_download(symbols, period)
                 
@@ -206,11 +208,10 @@ class DataFetcher:
                             if symbol in level_0_values:
                                 # 종목별 데이터 추출
                                 symbol_data = data[symbol]
-                                required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
                                 
                                 # 필수 컬럼이 모두 있는지 확인
-                                if all(col in symbol_data.columns for col in required_cols):
-                                    df = symbol_data[required_cols].copy()
+                                if all(col in symbol_data.columns for col in self.REQUIRED_COLUMNS):
+                                    df = symbol_data[self.REQUIRED_COLUMNS].copy()
                                     
                                     # 데이터 정제
                                     df.index = pd.to_datetime(df.index)
