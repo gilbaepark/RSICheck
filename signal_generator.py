@@ -28,6 +28,7 @@ class SignalGenerator:
     def generate_signal(self, data: pd.DataFrame) -> Tuple[str, str, float]:
         """
         매매 신호를 생성합니다.
+        추세, 다이버전스, 모멘텀을 고려한 개선된 전략을 사용합니다.
         
         Args:
             data: RSI가 계산된 DataFrame
@@ -38,11 +39,25 @@ class SignalGenerator:
         if data.empty or len(data) < 3:
             return self.HOLD, "데이터 부족", 0.0
         
+        # 이동평균선 계산 (없으면)
+        if 'MA_20' not in data.columns or 'MA_50' not in data.columns:
+            data = self.rsi_calc.calculate_multiple_moving_averages(data)
+        
         # 최신 RSI 값 가져오기
         short_rsi, medium_rsi, long_rsi = self.rsi_calc.get_latest_rsi_values(data)
         
         if short_rsi is None or medium_rsi is None or long_rsi is None:
             return self.HOLD, "RSI 계산 불가", 0.0
+        
+        # 추세 분석
+        trend = self.rsi_calc.detect_trend(data)
+        trend_strong = self.rsi_calc.is_trend_strong(data, trend)
+        
+        # 다이버전스 감지
+        divergence = self.rsi_calc.detect_rsi_divergence(data, 'RSI_Medium', lookback=14)
+        
+        # RSI 기울기 (모멘텀)
+        rsi_slope = self.rsi_calc.calculate_rsi_slope(data, 'RSI_Short', lookback=3)
         
         # 반전 및 추세 확인
         short_reversal = self.rsi_calc.detect_rsi_reversal(data, 'RSI_Short', lookback=2)
@@ -50,40 +65,124 @@ class SignalGenerator:
         medium_rising = self.rsi_calc.is_rsi_rising(data, 'RSI_Medium', lookback=2)
         medium_falling = self.rsi_calc.is_rsi_falling(data, 'RSI_Medium', lookback=2)
         
+        # 동적 RSI 임계값 설정
+        if trend == 'uptrend' and trend_strong:
+            # 강한 상승 추세: 매도 임계값 상향 조정 (70 → 80)
+            sell_threshold = 80
+            strong_sell_threshold = 85
+        elif trend == 'uptrend':
+            # 상승 추세: 매도 임계값 약간 상향 (70 → 75)
+            sell_threshold = 75
+            strong_sell_threshold = 80
+        else:
+            # 기본 임계값
+            sell_threshold = 70
+            strong_sell_threshold = 70
+        
+        if trend == 'downtrend' and trend_strong:
+            # 강한 하락 추세: 매수 임계값 하향 조정 (30 → 25)
+            buy_threshold = 25
+            strong_buy_threshold = 25
+        elif trend == 'downtrend':
+            # 하락 추세: 매수 임계값 약간 하향 (30 → 27)
+            buy_threshold = 27
+            strong_buy_threshold = 27
+        else:
+            # 기본 임계값
+            buy_threshold = 30
+            strong_buy_threshold = 30
+        
+        # === 매수 신호 로직 ===
+        
         # 강력 매수 조건
-        # 단기 RSI가 30 이하에서 상승 반전 + 중기 RSI 30~50 구간 상승 중 + 장기 RSI 50 이상
-        if (short_rsi <= 30 and short_reversal == 'up' and 
-            30 <= medium_rsi <= 50 and medium_rising and 
+        # 1. 기본: 단기 RSI 과매도 반전 + 중기 RSI 상승 + 장기 RSI 안정
+        # 2. 강세 다이버전스 추가 보너스
+        # 3. 하락 추세에서는 더 낮은 임계값 적용
+        if (short_rsi <= strong_buy_threshold and short_reversal == 'up' and 
+            strong_buy_threshold <= medium_rsi <= 50 and medium_rising and 
             long_rsi >= 50):
             strength = self._calculate_buy_strength(short_rsi, medium_rsi, long_rsi)
-            description = f"단기 RSI 상승 반전({short_rsi:.1f}), 중기 RSI 상승 중({medium_rsi:.1f}), 장기 RSI 안정({long_rsi:.1f})"
+            
+            # 강세 다이버전스가 있으면 신호 강도 증가
+            if divergence == 'bullish':
+                strength = min(100, strength * 1.2)
+                description = f"강세 다이버전스 감지! 단기 RSI 상승 반전({short_rsi:.1f}), 중기 RSI 상승 중({medium_rsi:.1f}), 장기 RSI 안정({long_rsi:.1f})"
+            else:
+                description = f"단기 RSI 상승 반전({short_rsi:.1f}), 중기 RSI 상승 중({medium_rsi:.1f}), 장기 RSI 안정({long_rsi:.1f})"
+            
             return self.STRONG_BUY, description, strength
         
         # 매수 조건
-        # 단기 RSI 30 이하 + 중기 RSI 40 이하
-        if short_rsi <= 30 and medium_rsi <= 40:
+        # 기본 과매도 조건 + 다이버전스 고려
+        if short_rsi <= buy_threshold and medium_rsi <= 40:
             strength = self._calculate_buy_strength(short_rsi, medium_rsi, long_rsi) * 0.7
-            description = f"단기 RSI 과매도({short_rsi:.1f}), 중기 RSI 낮음({medium_rsi:.1f})"
+            
+            # 강세 다이버전스가 있으면 신호 강도 증가
+            if divergence == 'bullish':
+                strength = min(100, strength * 1.3)
+                description = f"강세 다이버전스 + 단기 RSI 과매도({short_rsi:.1f}), 중기 RSI 낮음({medium_rsi:.1f})"
+            else:
+                description = f"단기 RSI 과매도({short_rsi:.1f}), 중기 RSI 낮음({medium_rsi:.1f})"
+            
             return self.BUY, description, strength
         
+        # === 매도 신호 로직 ===
+        
+        # 강세장에서 조기 매도 방지
+        # RSI가 과매수 구간이더라도 추세가 강하고 모멘텀이 있으면 보유
+        if trend == 'uptrend' and trend_strong:
+            # 강한 상승 추세에서는 RSI가 높아도 계속 상승할 수 있음
+            # RSI가 매우 높고(85 이상) 하락 반전이 명확할 때만 매도
+            if short_rsi >= 85 and short_reversal == 'down':
+                strength = self._calculate_sell_strength(short_rsi, medium_rsi, long_rsi) * 0.8
+                description = f"강한 상승 추세 중 단기 RSI 하락 반전({short_rsi:.1f}), 주의 필요"
+                return self.SELL, description, strength
+            elif short_rsi >= sell_threshold:
+                # 과매수지만 추세가 강하면 보유 권장
+                description = f"상승 추세 중 단기 RSI 과매수({short_rsi:.1f}), 추세 강함 - 보유 권장"
+                return self.HOLD, description, 0.0
+        
         # 강력 매도 조건
-        # 단기 RSI가 70 이상에서 하락 반전 + 중기 RSI 70 이상 하락 시작 + 장기 RSI 70 이상
-        if (short_rsi >= 70 and short_reversal == 'down' and 
-            medium_rsi >= 70 and medium_falling and 
-            long_rsi >= 70):
+        # 1. 기본: 단기 RSI 과매수 반전 + 중기 RSI 하락 + 장기 RSI 과열
+        # 2. 약세 다이버전스 추가 보너스
+        # 3. 상승 추세에서는 더 높은 임계값 적용
+        if (short_rsi >= strong_sell_threshold and short_reversal == 'down' and 
+            medium_rsi >= sell_threshold and medium_falling and 
+            long_rsi >= sell_threshold):
             strength = self._calculate_sell_strength(short_rsi, medium_rsi, long_rsi)
-            description = f"단기 RSI 하락 반전({short_rsi:.1f}), 중기 RSI 하락 중({medium_rsi:.1f}), 장기 RSI 과열({long_rsi:.1f})"
+            
+            # 약세 다이버전스가 있으면 신호 강도 증가
+            if divergence == 'bearish':
+                strength = min(100, strength * 1.2)
+                description = f"약세 다이버전스 감지! 단기 RSI 하락 반전({short_rsi:.1f}), 중기 RSI 하락 중({medium_rsi:.1f}), 장기 RSI 과열({long_rsi:.1f})"
+            else:
+                description = f"단기 RSI 하락 반전({short_rsi:.1f}), 중기 RSI 하락 중({medium_rsi:.1f}), 장기 RSI 과열({long_rsi:.1f})"
+            
             return self.STRONG_SELL, description, strength
         
         # 매도 조건
-        # 단기 RSI 70 이상 + 중기 RSI 60 이상
-        if short_rsi >= 70 and medium_rsi >= 60:
+        # 기본 과매수 조건 + 다이버전스 고려
+        if short_rsi >= sell_threshold and medium_rsi >= 60:
             strength = self._calculate_sell_strength(short_rsi, medium_rsi, long_rsi) * 0.7
-            description = f"단기 RSI 과매수({short_rsi:.1f}), 중기 RSI 높음({medium_rsi:.1f})"
+            
+            # 약세 다이버전스가 있으면 신호 강도 증가
+            if divergence == 'bearish':
+                strength = min(100, strength * 1.3)
+                description = f"약세 다이버전스 + 단기 RSI 과매수({short_rsi:.1f}), 중기 RSI 높음({medium_rsi:.1f})"
+            else:
+                description = f"단기 RSI 과매수({short_rsi:.1f}), 중기 RSI 높음({medium_rsi:.1f})"
+            
             return self.SELL, description, strength
         
         # 관망
-        description = f"단기 RSI: {short_rsi:.1f}, 중기 RSI: {medium_rsi:.1f}, 장기 RSI: {long_rsi:.1f}"
+        # 추세 정보 추가
+        trend_text = ""
+        if trend == 'uptrend':
+            trend_text = " [상승 추세]" if not trend_strong else " [강한 상승 추세]"
+        elif trend == 'downtrend':
+            trend_text = " [하락 추세]" if not trend_strong else " [강한 하락 추세]"
+        
+        description = f"단기 RSI: {short_rsi:.1f}, 중기 RSI: {medium_rsi:.1f}, 장기 RSI: {long_rsi:.1f}{trend_text}"
         return self.HOLD, description, 0.0
     
     def _calculate_buy_strength(self, short_rsi: float, medium_rsi: float, long_rsi: float) -> float:

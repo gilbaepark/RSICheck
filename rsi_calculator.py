@@ -170,3 +170,187 @@ class RSICalculator:
         
         # 연속적으로 하락하는지 확인
         return all(recent_values[i] > recent_values[i+1] for i in range(len(recent_values)-1))
+    
+    def calculate_moving_average(self, data: pd.DataFrame, period: int = 20) -> pd.Series:
+        """
+        이동평균선을 계산합니다.
+        
+        Args:
+            data: 주식 데이터 DataFrame (Close 컬럼 필요)
+            period: 이동평균 기간 (기본: 20일)
+            
+        Returns:
+            이동평균 값이 포함된 pandas Series
+        """
+        if 'Close' not in data.columns:
+            raise ValueError("DataFrame must contain 'Close' column")
+        
+        return data['Close'].rolling(window=period).mean()
+    
+    def calculate_multiple_moving_averages(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        여러 기간의 이동평균선을 계산합니다 (20일, 50일).
+        
+        Args:
+            data: 주식 데이터 DataFrame
+            
+        Returns:
+            이동평균선들이 추가된 DataFrame
+        """
+        result = data.copy()
+        result['MA_20'] = self.calculate_moving_average(data, 20)
+        result['MA_50'] = self.calculate_moving_average(data, 50)
+        return result
+    
+    def detect_trend(self, data: pd.DataFrame) -> str:
+        """
+        이동평균선을 기반으로 추세를 판단합니다.
+        
+        Args:
+            data: 이동평균선이 계산된 DataFrame (MA_20, MA_50 필요)
+            
+        Returns:
+            'uptrend' (상승 추세), 'downtrend' (하락 추세), 'neutral' (중립)
+        """
+        if data.empty or len(data) < 50:
+            return 'neutral'
+        
+        if 'MA_20' not in data.columns or 'MA_50' not in data.columns:
+            # 이동평균선이 없으면 계산
+            data = self.calculate_multiple_moving_averages(data)
+        
+        current_price = data['Close'].iloc[-1]
+        ma_20 = data['MA_20'].iloc[-1]
+        ma_50 = data['MA_50'].iloc[-1]
+        
+        # NaN 체크
+        if pd.isna(ma_20) or pd.isna(ma_50):
+            return 'neutral'
+        
+        # 상승 추세: 가격 > MA20 > MA50
+        if current_price > ma_20 and ma_20 > ma_50:
+            return 'uptrend'
+        
+        # 하락 추세: 가격 < MA20 < MA50
+        if current_price < ma_20 and ma_20 < ma_50:
+            return 'downtrend'
+        
+        return 'neutral'
+    
+    def is_trend_strong(self, data: pd.DataFrame, trend: str) -> bool:
+        """
+        추세가 강한지 확인합니다.
+        
+        Args:
+            data: 이동평균선이 계산된 DataFrame
+            trend: 추세 ('uptrend' 또는 'downtrend')
+            
+        Returns:
+            강한 추세면 True, 아니면 False
+        """
+        if data.empty or len(data) < 50:
+            return False
+        
+        if 'MA_20' not in data.columns or 'MA_50' not in data.columns:
+            data = self.calculate_multiple_moving_averages(data)
+        
+        current_price = data['Close'].iloc[-1]
+        ma_20 = data['MA_20'].iloc[-1]
+        ma_50 = data['MA_50'].iloc[-1]
+        
+        if pd.isna(ma_20) or pd.isna(ma_50):
+            return False
+        
+        # 강한 상승 추세: 가격이 MA20보다 5% 이상 위에 있고, MA20이 MA50보다 3% 이상 위
+        if trend == 'uptrend':
+            price_above_ma20 = (current_price - ma_20) / ma_20 * 100 > 5
+            ma20_above_ma50 = (ma_20 - ma_50) / ma_50 * 100 > 3
+            return price_above_ma20 and ma20_above_ma50
+        
+        # 강한 하락 추세: 가격이 MA20보다 5% 이상 아래에 있고, MA20이 MA50보다 3% 이상 아래
+        if trend == 'downtrend':
+            price_below_ma20 = (ma_20 - current_price) / ma_20 * 100 > 5
+            ma20_below_ma50 = (ma_50 - ma_20) / ma_50 * 100 > 3
+            return price_below_ma20 and ma20_below_ma50
+        
+        return False
+    
+    def detect_rsi_divergence(self, data: pd.DataFrame, rsi_column: str = 'RSI_Medium', lookback: int = 14) -> str:
+        """
+        RSI 다이버전스를 감지합니다.
+        
+        Args:
+            data: RSI가 계산된 DataFrame
+            rsi_column: RSI 컬럼 이름 (기본: 'RSI_Medium')
+            lookback: 다이버전스 확인 기간
+            
+        Returns:
+            'bullish' (강세 다이버전스), 'bearish' (약세 다이버전스), 'none' (없음)
+        """
+        if data.empty or len(data) < lookback + 1:
+            return 'none'
+        
+        if rsi_column not in data.columns or 'Close' not in data.columns:
+            return 'none'
+        
+        recent_data = data.iloc[-lookback-1:]
+        prices = recent_data['Close'].values
+        rsi_values = recent_data[rsi_column].values
+        
+        # NaN 체크
+        if np.any(np.isnan(prices)) or np.any(np.isnan(rsi_values)):
+            return 'none'
+        
+        # 가격과 RSI의 추세 비교
+        price_change = prices[-1] - prices[0]
+        rsi_change = rsi_values[-1] - rsi_values[0]
+        
+        # 강세 다이버전스: 가격은 하락하는데 RSI는 상승 (매수 신호 강화)
+        if price_change < 0 and rsi_change > 0:
+            # 가격의 저점이 낮아지는지 확인
+            first_half_price_min = np.min(prices[:lookback//2])
+            second_half_price_min = np.min(prices[lookback//2:])
+            first_half_rsi_min = np.min(rsi_values[:lookback//2])
+            second_half_rsi_min = np.min(rsi_values[lookback//2:])
+            
+            if second_half_price_min < first_half_price_min and second_half_rsi_min > first_half_rsi_min:
+                return 'bullish'
+        
+        # 약세 다이버전스: 가격은 상승하는데 RSI는 하락 (매도 신호 강화)
+        if price_change > 0 and rsi_change < 0:
+            # 가격의 고점이 높아지는지 확인
+            first_half_price_max = np.max(prices[:lookback//2])
+            second_half_price_max = np.max(prices[lookback//2:])
+            first_half_rsi_max = np.max(rsi_values[:lookback//2])
+            second_half_rsi_max = np.max(rsi_values[lookback//2:])
+            
+            if second_half_price_max > first_half_price_max and second_half_rsi_max < first_half_rsi_max:
+                return 'bearish'
+        
+        return 'none'
+    
+    def calculate_rsi_slope(self, data: pd.DataFrame, rsi_column: str, lookback: int = 3) -> float:
+        """
+        RSI의 기울기(변화율)를 계산합니다.
+        
+        Args:
+            data: RSI가 계산된 DataFrame
+            rsi_column: RSI 컬럼 이름
+            lookback: 기울기 계산 기간
+            
+        Returns:
+            RSI 기울기 (양수: 상승, 음수: 하락)
+        """
+        if rsi_column not in data.columns or len(data) < lookback + 1:
+            return 0.0
+        
+        recent_values = data[rsi_column].iloc[-(lookback+1):].values
+        
+        if len(recent_values) < lookback + 1 or np.any(np.isnan(recent_values)):
+            return 0.0
+        
+        # 선형 회귀를 사용한 기울기 계산
+        x = np.arange(len(recent_values))
+        slope = np.polyfit(x, recent_values, 1)[0]
+        
+        return slope

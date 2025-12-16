@@ -92,11 +92,56 @@ def load_current_price(symbol):
     """현재가 로드"""
     return fetcher.get_current_price(symbol)
 
-# 메인 화면
+@st.cache_data(ttl=300)
+def load_all_signals(period):
+    """모든 종목의 신호 로드 (배치 다운로드로 성능 개선)"""
+    # 배치 다운로드 사용
+    symbols = list(stock_list.values())
+    all_data_raw = fetcher.get_batch_stock_data(symbols, period)
+    
+    all_data = {}
+    for name, symbol in stock_list.items():
+        if symbol in all_data_raw and all_data_raw[symbol] is not None:
+            df_with_rsi = rsi_calc.calculate_all_rsi(all_data_raw[symbol])
+            all_data[f"{name} ({symbol})"] = df_with_rsi
+    
+    return signal_gen.get_all_signals(all_data)
+
+# === 전체 종목 요약을 페이지 최상단으로 이동 ===
+st.markdown("### 📋 전체 종목 요약")
+st.markdown("모든 모니터링 종목의 매매 신호를 한눈에 확인하세요.")
+
+with st.spinner("전체 종목 신호를 불러오는 중..."):
+    summary_df = load_all_signals(selected_period)
+    
+    if not summary_df.empty:
+        # 신호에 따라 색상 적용
+        def highlight_signal(row):
+            colors = {
+                "강력 매수": "background-color: #0066cc; color: white",
+                "매수": "background-color: #00cc66; color: white",
+                "관망": "background-color: #cccccc; color: black",
+                "매도": "background-color: #ff9933; color: white",
+                "강력 매도": "background-color: #cc0000; color: white"
+            }
+            return [colors.get(row['신호'], '')] * len(row)
+        
+        styled_df = summary_df.style.apply(highlight_signal, axis=1)
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
+    else:
+        st.warning("전체 종목 데이터를 불러올 수 없습니다.")
+
+st.markdown("---")
+
+# === 선택된 종목의 상세 정보 ===
+
+# === 선택된 종목의 상세 정보 ===
+st.markdown("### 📊 선택된 종목 상세 분석")
+
 col1, col2, col3 = st.columns([2, 1, 1])
 
 with col1:
-    st.subheader(f"📊 {selected_stock_name} ({selected_symbol})")
+    st.subheader(f"{selected_stock_name} ({selected_symbol})")
 
 # 현재가 정보 표시
 with st.spinner("현재가 정보를 가져오는 중..."):
@@ -280,41 +325,6 @@ fig.update_yaxes(title_text="RSI", range=[0, 100], row=4, col=1)
 st.plotly_chart(fig, use_container_width=True)
 
 st.markdown("---")
-
-# 전체 종목 요약
-st.markdown("### 📋 전체 종목 요약")
-
-@st.cache_data(ttl=300)
-def load_all_signals(period):
-    """모든 종목의 신호 로드"""
-    all_data = {}
-    for name, symbol in stock_list.items():
-        df = fetcher.get_stock_data(symbol, period)
-        if df is not None and not df.empty:
-            df_with_rsi = rsi_calc.calculate_all_rsi(df)
-            all_data[f"{name} ({symbol})"] = df_with_rsi
-    
-    return signal_gen.get_all_signals(all_data)
-
-with st.spinner("전체 종목 신호를 불러오는 중..."):
-    summary_df = load_all_signals(selected_period)
-    
-    if not summary_df.empty:
-        # 신호에 따라 색상 적용
-        def highlight_signal(row):
-            colors = {
-                "강력 매수": "background-color: #0066cc; color: white",
-                "매수": "background-color: #00cc66; color: white",
-                "관망": "background-color: #cccccc; color: black",
-                "매도": "background-color: #ff9933; color: white",
-                "강력 매도": "background-color: #cc0000; color: white"
-            }
-            return [colors.get(row['신호'], '')] * len(row)
-        
-        styled_df = summary_df.style.apply(highlight_signal, axis=1)
-        st.dataframe(styled_df, use_container_width=True, hide_index=True)
-    else:
-        st.warning("전체 종목 데이터를 불러올 수 없습니다.")
 
 # 푸터
 st.markdown("---")
