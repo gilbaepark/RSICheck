@@ -150,53 +150,136 @@ class DataFetcher:
         Returns:
             dict: {심볼: DataFrame} 형태의 딕셔너리
         """
+        all_data = {}
+        
         try:
             # 여러 종목을 한 번에 다운로드
             data = yf.download(
-                tickers=' '.join(symbols),
+                tickers=symbols,
                 period=period,
                 group_by='ticker',
                 auto_adjust=False,
-                progress=False
+                progress=False,
+                threads=True
             )
             
-            all_data = {}
+            # 데이터가 비어있거나 None인 경우 fallback
+            if data is None or data.empty:
+                print("Batch download returned empty data, falling back to individual download")
+                return self._fallback_individual_download(symbols, period)
             
+            # 단일 종목인 경우
             if len(symbols) == 1:
-                # 단일 종목인 경우
                 symbol = symbols[0]
-                if not data.empty:
-                    df = data[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
-                    df.index = pd.to_datetime(df.index)
-                    all_data[symbol] = df
+                try:
+                    required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+                    # 모든 필수 컬럼이 존재하는지 확인
+                    if all(col in data.columns for col in required_cols):
+                        df = data[required_cols].copy()
+                        df.index = pd.to_datetime(df.index)
+                        # Close 컬럼의 NaN을 제거
+                        df = df.dropna(subset=['Close'])
+                        if not df.empty:
+                            all_data[symbol] = df
+                    else:
+                        print(f"Missing required columns for {symbol}, trying individual download")
+                        individual_df = self.get_stock_data(symbol, period)
+                        if individual_df is not None:
+                            all_data[symbol] = individual_df
+                except Exception as e:
+                    print(f"Error processing single symbol {symbol}: {e}")
+                    # 개별 다운로드로 재시도
+                    try:
+                        individual_df = self.get_stock_data(symbol, period)
+                        if individual_df is not None:
+                            all_data[symbol] = individual_df
+                    except Exception:
+                        pass
             else:
-                # 여러 종목인 경우
+                # 여러 종목인 경우 - MultiIndex 처리
                 for symbol in symbols:
                     try:
-                        # MultiIndex 확인
-                        if hasattr(data.columns, 'levels'):
-                            # MultiIndex인 경우
-                            if symbol in data.columns.levels[0]:
-                                df = data[symbol][['Open', 'High', 'Low', 'Close', 'Volume']].copy()
-                                df.index = pd.to_datetime(df.index)
-                                # NaN이 너무 많으면 제외
-                                if not df.empty and df['Close'].notna().sum() > 0:
-                                    all_data[symbol] = df
+                        # MultiIndex DataFrame 체크
+                        if isinstance(data.columns, pd.MultiIndex):
+                            # MultiIndex에서 해당 종목이 존재하는지 확인
+                            if symbol in data.columns.get_level_values(0):
+                                # 종목별 데이터 추출
+                                symbol_data = data[symbol]
+                                required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+                                
+                                # 필수 컬럼이 모두 있는지 확인
+                                if all(col in symbol_data.columns for col in required_cols):
+                                    df = symbol_data[required_cols].copy()
+                                else:
+                                    print(f"Missing required columns for {symbol}, skipping")
+                                    continue
+                            else:
+                                print(f"Symbol {symbol} not found in MultiIndex, trying individual download")
+                                individual_df = self.get_stock_data(symbol, period)
+                                if individual_df is not None:
+                                    all_data[symbol] = individual_df
+                                continue
                         else:
-                            # MultiIndex가 아닌 경우 (단일 종목이지만 복수로 요청된 경우)
-                            if not data.empty:
-                                df = data[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
-                                df.index = pd.to_datetime(df.index)
-                                if df['Close'].notna().sum() > 0:
-                                    all_data[symbol] = df
+                            # MultiIndex가 아닌 경우 - 단일 종목으로 처리
+                            required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+                            if all(col in data.columns for col in required_cols):
+                                df = data[required_cols].copy()
+                            else:
+                                print(f"Missing required columns, skipping {symbol}")
+                                continue
+                        
+                        # 데이터 정제
+                        df.index = pd.to_datetime(df.index)
+                        df = df.dropna(subset=['Close'])
+                        
+                        # 유효한 데이터가 있는 경우에만 추가
+                        if not df.empty:
+                            all_data[symbol] = df
+                        else:
+                            print(f"No valid data for {symbol} after cleaning")
+                            
                     except Exception as e:
                         print(f"Error processing {symbol}: {e}")
+                        # 개별 종목 실패 시 개별 다운로드 시도
+                        try:
+                            individual_df = self.get_stock_data(symbol, period)
+                            if individual_df is not None:
+                                all_data[symbol] = individual_df
+                        except Exception as e2:
+                            print(f"Fallback download also failed for {symbol}: {e2}")
+            
+            # 아무 데이터도 없으면 fallback
+            if not all_data:
+                print("No data retrieved from batch download, falling back to individual download")
+                return self._fallback_individual_download(symbols, period)
             
             return all_data
+            
         except Exception as e:
             print(f"Error in batch download: {e}")
-            # 배치 다운로드 실패 시 개별 다운로드로 대체
-            return self.get_all_stocks_data(period)
+            # 전체 실패 시 개별 다운로드로 대체
+            return self._fallback_individual_download(symbols, period)
+    
+    def _fallback_individual_download(self, symbols: list, period: str) -> dict:
+        """
+        배치 다운로드 실패 시 개별 다운로드로 대체합니다.
+        
+        Args:
+            symbols: 주식 티커 심볼 리스트
+            period: 조회 기간
+            
+        Returns:
+            dict: {심볼: DataFrame} 형태의 딕셔너리
+        """
+        all_data = {}
+        for symbol in symbols:
+            try:
+                df = self.get_stock_data(symbol, period)
+                if df is not None and not df.empty:
+                    all_data[symbol] = df
+            except Exception as e:
+                print(f"Fallback download failed for {symbol}: {e}")
+        return all_data
     
     def get_all_current_prices(self) -> dict:
         """
